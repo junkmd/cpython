@@ -3,6 +3,7 @@ import gc
 import sys
 import unittest
 from ctypes import POINTER, byref, c_void_p
+from ctypes import c_size_t as SIZE_T
 from ctypes.wintypes import BYTE, DWORD, WORD
 
 if sys.platform != "win32":
@@ -59,6 +60,7 @@ def is_equal_guid(guid1, guid2):
 ole32 = ctypes.oledll.ole32
 
 IID_IUnknown = create_guid("{00000000-0000-0000-C000-000000000046}")
+IID_IMalloc = create_guid("{00000002-0000-0000-C000-000000000046}")
 IID_IStream = create_guid("{0000000C-0000-0000-C000-000000000046}")
 IID_IPersist = create_guid("{0000010C-0000-0000-C000-000000000046}")
 CLSID_ShellLink = create_guid("{00021401-0000-0000-C000-000000000046}")
@@ -75,6 +77,18 @@ proto_release = create_proto_com_method("Release", 2, ctypes.c_long)
 proto_get_class_id = create_proto_com_method(
     "GetClassID", 3, HRESULT, POINTER(GUID)
 )
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-alloc
+proto_alloc = create_proto_com_method("Alloc", 3, c_void_p, SIZE_T)
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-realloc
+proto_realloc = create_proto_com_method("Realloc", 4, c_void_p, c_void_p, SIZE_T)
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-free
+proto_free = create_proto_com_method("Free", 5, None, c_void_p)
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-getsize
+proto_get_size = create_proto_com_method("GetSize", 6, SIZE_T, c_void_p)
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-didalloc
+proto_did_alloc = create_proto_com_method("DidAlloc", 7, ctypes.c_int, c_void_p)
+# https://learn.microsoft.com/en-us/windows/win32/api/objidl/nf-objidl-imalloc-heapminimize
+proto_heap_minimize = create_proto_com_method("HeapMinimize", 8, None)
 
 
 def create_shelllink_persist(typ):
@@ -279,6 +293,62 @@ class CopyComPointerTests(unittest.TestCase):
 
         self.assertEqual(0, dst.Release())
         self.assertEqual(0, dst_orig.Release())
+
+
+class IMallocTests(unittest.TestCase):
+    def setUp(self):
+        # https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-coinitializeex
+        ole32.CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+
+    def tearDown(self):
+        # https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-couninitialize
+        ole32.CoUninitialize()
+        gc.collect()
+
+    def test_did_alloc(self):
+        class IUnknown(c_void_p):
+            QueryInterface = proto_query_interface()
+            AddRef = proto_add_ref()
+            Release = proto_release()
+
+        class IMalloc(IUnknown):
+            Alloc = proto_alloc()
+            Realloc = proto_realloc()
+            Free = proto_free()
+            GetSize = proto_get_size()
+            DidAlloc = proto_did_alloc()
+            HeapMinimize = proto_heap_minimize()
+            Release = proto_release()
+
+        # https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-cogetmalloc
+        pmalloc = IMalloc()
+        hr = ole32.CoGetMalloc(1, byref(pmalloc))
+        self.assertEqual(S_OK, hr)
+        try:
+            # Based on the comtypes example provided by the user:
+            size1 = 4
+            ptr1 = pmalloc.Alloc(size1)
+            self.assertEqual(pmalloc.DidAlloc(ptr1), 1)
+            self.assertEqual(pmalloc.GetSize(ptr1), size1)
+
+            size2 = size1 - 1
+            ptr2 = pmalloc.Realloc(ptr1, size2)
+            # Realloc might return the same pointer or a new one
+            self.assertEqual(pmalloc.DidAlloc(ptr2), 1)
+            self.assertEqual(pmalloc.GetSize(ptr2), size2)
+
+            size3 = size1 + 1
+            ptr3 = pmalloc.Realloc(ptr2, size3)
+            self.assertEqual(pmalloc.DidAlloc(ptr3), 1)
+            self.assertEqual(pmalloc.GetSize(ptr3), size3)
+
+            pmalloc.Free(ptr3)
+            # After freeing, DidAlloc might return 0
+            self.assertEqual(pmalloc.DidAlloc(ptr3), 0)
+
+            pmalloc.HeapMinimize()
+        finally:
+            pmalloc.Release()
 
 
 if __name__ == '__main__':
