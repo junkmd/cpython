@@ -307,13 +307,13 @@ class IMallocTests(unittest.TestCase):
 
     def test_did_alloc(self):
         class IMalloc(c_void_p):
-            Alloc = proto_alloc(None, IID_IMalloc)
-            Realloc = proto_realloc(None, IID_IMalloc)
-            Free = proto_free(None, IID_IMalloc)
-            GetSize = proto_get_size(None, IID_IMalloc)
-            DidAlloc = proto_did_alloc(None, IID_IMalloc)
-            HeapMinimize = proto_heap_minimize(None, IID_IMalloc)
-            Release = proto_release(None, IID_IMalloc)
+            Alloc = proto_alloc()
+            Realloc = proto_realloc()
+            Free = proto_free()
+            GetSize = proto_get_size()
+            DidAlloc = proto_did_alloc()
+            HeapMinimize = proto_heap_minimize()
+            Release = proto_release()
 
         # https://learn.microsoft.com/en-us/windows/win32/api/combaseapi/nf-combaseapi-cogetmalloc
         pmalloc = IMalloc()
