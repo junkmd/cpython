@@ -306,7 +306,12 @@ class IMallocTests(unittest.TestCase):
         gc.collect()
 
     def test_did_alloc(self):
-        class IMalloc(c_void_p):
+        class IUnknown(c_void_p):
+            QueryInterface = proto_query_interface()
+            AddRef = proto_add_ref()
+            Release = proto_release()
+
+        class IMalloc(IUnknown):
             Alloc = proto_alloc()
             Realloc = proto_realloc()
             Free = proto_free()
